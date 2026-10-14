@@ -95,34 +95,68 @@ function loadSpotifyIframeApi() {
   return spotifyIframeApiPromise;
 }
 
+function getSpotifyTrackDetails(spotifyUrl) {
+  const parsed = new URL(spotifyUrl);
+  const [kind, id] = parsed.pathname.split('/').filter(Boolean);
+  if (parsed.hostname !== 'open.spotify.com' || kind !== 'track' || !id) {
+    throw new Error('Use a Spotify track URL such as https://open.spotify.com/track/your-track-id.');
+  }
+  return {
+    id,
+    uri: `spotify:track:${id}`,
+    embedUrl: `https://open.spotify.com/embed/track/${encodeURIComponent(id)}`,
+  };
+}
+
 function SpotifyPlayer({ selection, onPlaybackChange }) {
-  const playerRef = useRef(null);
+  const playerContainerRef = useRef(null);
+  const controllerRef = useRef(null);
+  const latestTrackUriRef = useRef('');
   const [playerError, setPlayerError] = useState('');
+  let trackDetails;
+
+  try {
+    if (selection?.url) trackDetails = getSpotifyTrackDetails(selection.url);
+  } catch (error) {
+    trackDetails = { error: error.message };
+  }
+  latestTrackUriRef.current = trackDetails?.uri || '';
 
   useEffect(() => {
     let isCurrent = true;
     let controller;
+    let loadTimeout;
+    let didTimeout = false;
     setPlayerError('');
     onPlaybackChange(false);
 
-    if (!selection?.url) {
-      return () => {
-        isCurrent = false;
-      };
-    }
+    if (!trackDetails?.embedUrl) return undefined;
 
     loadSpotifyIframeApi()
       .then((iframeApi) => {
-        if (!isCurrent || !playerRef.current) return;
-        iframeApi.createController(playerRef.current, { url: selection.url, width: '100%', height: 152 }, (embedController) => {
-          if (!isCurrent) {
+        if (!isCurrent || !playerContainerRef.current) return;
+        loadTimeout = window.setTimeout(() => {
+          if (isCurrent && !controller) {
+            didTimeout = true;
+            setPlayerError('Spotify is taking too long to load. Open this track directly in Spotify.');
+          }
+        }, 15000);
+        const mountPoint = document.createElement('div');
+        playerContainerRef.current.replaceChildren(mountPoint);
+        iframeApi.createController(mountPoint, { uri: trackDetails.uri, width: '100%', height: 152 }, (embedController) => {
+          if (!isCurrent || didTimeout) {
             embedController.destroy();
             return;
           }
+          window.clearTimeout(loadTimeout);
           controller = embedController;
+          controllerRef.current = embedController;
           controller.addListener('playback_update', (event) => {
             onPlaybackChange(!event.data.isPaused);
           });
+          if (latestTrackUriRef.current !== trackDetails.uri) {
+            controller.loadUri(latestTrackUriRef.current);
+          }
         });
       })
       .catch((error) => {
@@ -131,10 +165,30 @@ function SpotifyPlayer({ selection, onPlaybackChange }) {
 
     return () => {
       isCurrent = false;
+      window.clearTimeout(loadTimeout);
+      controllerRef.current = null;
       onPlaybackChange(false);
       controller?.destroy();
+      playerContainerRef.current?.replaceChildren();
     };
-  }, [selection?.url, onPlaybackChange]);
+  }, [Boolean(trackDetails?.embedUrl), onPlaybackChange]);
+
+  useEffect(() => {
+    if (!trackDetails?.uri || !controllerRef.current) return;
+    try {
+      controllerRef.current.loadUri(trackDetails.uri);
+    } catch (error) {
+      setPlayerError(`Spotify could not load this track: ${error.message}`);
+    }
+  }, [trackDetails?.uri]);
+
+  const spotifyLink = selection?.url;
+  const playerFallback = (message) => (
+    <div className="player-placeholder" role="status">
+      <Music2 size={21} strokeWidth={1.3} />
+      <p>{message}{spotifyLink && <> <a href={spotifyLink} target="_blank" rel="noreferrer">Open this track in Spotify ↗</a></>}</p>
+    </div>
+  );
 
   if (!selection?.url) {
     return (
@@ -144,21 +198,11 @@ function SpotifyPlayer({ selection, onPlaybackChange }) {
       </div>
     );
   }
-  let embedUrl;
-  try {
-    const parsed = new URL(selection.url);
-    const segments = parsed.pathname.split('/').filter(Boolean);
-    const kind = segments[0];
-    const id = segments[1];
-    if (parsed.hostname !== 'open.spotify.com' || !['track', 'album', 'playlist', 'episode', 'show'].includes(kind) || !id) {
-      throw new Error('Use a Spotify track, album, playlist, show, or episode URL.');
-    }
-    embedUrl = `https://open.spotify.com/embed/${kind}/${id}?utm_source=generator&theme=0`;
-  } catch (error) {
-    return <div className="player-placeholder">{error.message}</div>;
-  }
-  if (playerError) return <div className="player-placeholder" role="status">{playerError}</div>;
-  return <div className="spotify-embed" ref={playerRef} aria-label={`Spotify player: ${selection.title}`} data-embed-url={embedUrl} />;
+  if (trackDetails?.error) return playerFallback(trackDetails.error);
+  if (playerError) return playerFallback(playerError);
+  return (
+    <div className="spotify-embed" ref={playerContainerRef} aria-label={`Spotify player: ${selection.title}`} data-embed-url={trackDetails.embedUrl} />
+  );
 }
 
 function PhotoModal({ memory, onClose, isFinal = false }) {
@@ -201,7 +245,6 @@ function App() {
   const galleryMemories = memories;
   const finalMemory = finalSurprise;
   const shownMusic = musicSelections[selectedTrack] || musicSelections[0];
-
   return (
     <main>
       {!opened ? <Envelope onOpen={() => setOpened(true)} /> : (
@@ -242,7 +285,7 @@ function App() {
                 <h2>Let the records<br /><em>turn slowly.</em></h2>
                 <div className="track-list">
                   {musicSelections.map((track, index) => (
-                    <button key={`${track.artist}-${index}`} className={`track-row ${selectedTrack === index ? 'is-selected' : ''}`} onClick={() => setSelectedTrack(index)}>
+                    <button key={`${track.artist}-${index}`} className={`track-row ${selectedTrack === index ? 'is-selected' : ''}`} onClick={() => setSelectedTrack(index)} aria-pressed={selectedTrack === index}>
                       <span className="track-index">{String(index + 1).padStart(2, '0')}</span><span className="track-info"><strong>{track.artist}</strong><small>{track.title}</small></span><span className="track-indicator">{selectedTrack === index ? '♫' : '↗'}</span>
                     </button>
                   ))}

@@ -120,6 +120,7 @@ main { min-height: 100vh; position: relative; overflow: hidden; }
 .track-list { max-width: 355px; }
 .track-row { border: 0; border-top: 1px solid rgba(197,168,107,.17); padding: 12px 1px; display: flex; align-items: center; gap: 14px; width: 100%; background: none; text-align: left; cursor: pointer; color: inherit; }
 .track-row:last-child { border-bottom: 1px solid rgba(197,168,107,.17); }
+.track-row.is-selected { background: linear-gradient(90deg,rgba(116,44,53,.34),rgba(116,44,53,.08) 72%,transparent); }
 .track-index { color: #806a4d; font: 11px var(--serif); }
 .track-info { display: grid; gap: 3px; flex: 1; }
 .track-info strong { color: #d8c6a8; font: 500 17px var(--serif); }
