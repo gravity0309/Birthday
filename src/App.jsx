@@ -4,12 +4,22 @@ import { finalSurprise, memories } from './data/memories.js';
 import { musicSelections } from './data/music.js';
 
 function Photo({ memory, className = '', onClick }) {
-  const [missing, setMissing] = useState(false);
-  useEffect(() => setMissing(false), [memory?.image]);
+  const [failedImage, setFailedImage] = useState('');
+  const imagePath = memory?.image;
+  const imageFailed = failedImage === imagePath;
+
   return (
     <button className={`photo ${className}`} onClick={onClick} type="button" aria-label={memory?.caption || 'Open photograph'}>
-      {memory?.image && !missing
-        ? <img src={memory.image} alt={memory.caption || 'A memory'} onError={() => setMissing(true)} />
+      {imagePath && !imageFailed
+        ? <img
+            src={imagePath}
+            alt={memory.caption || 'A memory'}
+            onError={(event) => {
+              const requestedUrl = event.currentTarget.currentSrc || imagePath;
+              console.error(`Unable to load memory photo "${imagePath}" (requested URL: ${requestedUrl}). Check that the file exists under public and that its filename casing matches.`, event);
+              setFailedImage(imagePath);
+            }}
+          />
         : <span className="photo-placeholder"><span className="placeholder-rose">✿</span><span>Your photograph<br />will live here</span></span>}
     </button>
   );
